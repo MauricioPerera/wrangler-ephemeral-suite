@@ -1,0 +1,13 @@
+{
+  "name": "ephemeral-suite",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:temporary": "wrangler deploy --temporary"
+  },
+  "devDependencies": {
+    "wrangler": "^4.102.0"
+  }
+}
