@@ -6,6 +6,7 @@ Mismo mecanismo que los proyectos hermanos ([wrangler-ephemeral-chat](https://gi
 
 - **Usá este** si el usuario quiere chat + pizarra + airdrop juntos, en un solo deploy/cuenta temporal/claim URL.
 - **Usá el standalone correspondiente** (`wrangler-ephemeral-chat`, `-whiteboard`, `-airdrop`) si solo necesita una herramienta — es más liviano y no trae las otras dos.
+- **Si lo que necesita es inspeccionar webhooks**, esta suite no sirve — [wrangler-ephemeral-webhook](https://github.com/MauricioPerera/wrangler-ephemeral-webhook) es un repo hermano independiente, todavía no integrado a este deploy combinado. Desplegalo aparte.
 
 ## Paso 1 — Confirmar que NO hay sesión activa
 
@@ -37,7 +38,7 @@ Para probar las rutas de WebSocket (`/chat/room/<nombre>`, `/board/room/<nombre>
 
 ## Gotchas específicos de este proyecto
 
-- **Namespacing de rutas es obligatorio**: en los repos standalone, chat y pizarra usan ambos `/room/<nombre>` para su propio Durable Object. Al combinarlos colisionarían si no se prefijan (`/chat/room/*` vs `/board/room/*`). Si se agrega una cuarta herramienta a este repo en el futuro, verificar que no reutilice un prefijo de ruta ya usado.
+- **Namespacing de rutas es obligatorio**: en los repos standalone, chat y pizarra usan ambos `/room/<nombre>` para su propio Durable Object. Al combinarlos colisionarían si no se prefijan (`/chat/room/*` vs `/board/room/*`). Si se agrega una cuarta herramienta a este repo en el futuro (por ejemplo `wrangler-ephemeral-webhook`, bajo `/hook/*`), verificar que no reutilice un prefijo de ruta ya usado.
 - **Los tres Durable Objects van en una sola entrada de `migrations`** en `wrangler.jsonc` (`new_sqlite_classes: ["ChatRoom", "Board", "Drop"]`) — no hace falta una migración por clase.
 - El bundle final es chico (~60KB) porque ninguna de las tres herramientas usa WASM (a diferencia de `wrangler-ephemeral-sandbox`) — no hay que preocuparse por tiempos de carga.
 
