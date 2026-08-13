@@ -11,6 +11,8 @@
 Each tool still exists **standalone**, unchanged, for anyone who only needs one:
 [wrangler-ephemeral-chat](https://github.com/MauricioPerera/wrangler-ephemeral-chat) · [wrangler-ephemeral-whiteboard](https://github.com/MauricioPerera/wrangler-ephemeral-whiteboard) · [wrangler-ephemeral-airdrop](https://github.com/MauricioPerera/wrangler-ephemeral-airdrop)
 
+Also a sibling of [wrangler-ephemeral-webhook](https://github.com/MauricioPerera/wrangler-ephemeral-webhook) ([landing page](https://mauricioperera.github.io/wrangler-ephemeral-webhook/)) — for inspecting incoming webhooks live (not yet part of this combined deploy).
+
 ## How it works
 
 - `wrangler deploy --temporary` creates a temporary Cloudflare account (no login) and deploys a single Worker with **three separate Durable Objects** (`ChatRoom`, `Board`, `Drop`).
