@@ -4,6 +4,8 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/MauricioPerera/wrangler-ephemeral-suite)
 
+🌐 **[Landing page](https://mauricioperera.github.io/wrangler-ephemeral-suite/)** — apresentação visual do projeto, disponível em español / English / português.
+
 **Chat + quadro branco + airdrop num único deploy.** Se você quer as três ferramentas ao mesmo tempo (uma reunião onde você conversa, desenha e passa um arquivo), não precisa fazer três `wrangler deploy --temporary` separados com três contas temporárias — isso combina tudo num único Worker, uma única conta, um único link/claim URL.
 
 Cada ferramenta continua existindo **standalone**, sem mudanças, para quem só precisa de uma:
