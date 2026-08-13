@@ -11,7 +11,7 @@
 Each tool still exists **standalone**, unchanged, for anyone who only needs one:
 [wrangler-ephemeral-chat](https://github.com/MauricioPerera/wrangler-ephemeral-chat) · [wrangler-ephemeral-whiteboard](https://github.com/MauricioPerera/wrangler-ephemeral-whiteboard) · [wrangler-ephemeral-airdrop](https://github.com/MauricioPerera/wrangler-ephemeral-airdrop)
 
-Also a sibling of [wrangler-ephemeral-webhook](https://github.com/MauricioPerera/wrangler-ephemeral-webhook) ([landing page](https://mauricioperera.github.io/wrangler-ephemeral-webhook/)) — for inspecting incoming webhooks live (not yet part of this combined deploy).
+Also a sibling of [wrangler-ephemeral-webhook](https://github.com/MauricioPerera/wrangler-ephemeral-webhook) ([landing page](https://mauricioperera.github.io/wrangler-ephemeral-webhook/)) — for inspecting incoming webhooks live — and [wrangler-ephemeral-voicememo](https://github.com/MauricioPerera/wrangler-ephemeral-voicememo) ([landing page](https://mauricioperera.github.io/wrangler-ephemeral-voicememo/)) — for recording and sharing a voice memo (neither is part of this combined deploy yet).
 
 ## How it works
 
