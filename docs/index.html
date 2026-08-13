@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ephemeral Suite — chat + pizarra + airdrop en un solo deploy</title>
+<meta name="description" content="Chat, pizarra colaborativa y airdrop de archivos combinados en un solo Worker. Se despliega en segundos con wrangler --temporary sobre una cuenta temporal de Cloudflare y se autodestruye sola en ~1 hora.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧰</text></svg>">
+<style>
+  :root {
+    --bg: #0a0b12;
+    --text: #eef0ff;
+    --muted: #9aa0c0;
+    --primary: #6366f1;
+    --primary2: #f43f5e;
+    --accent: #10b981;
+    --card: rgba(255,255,255,0.045);
+    --border: rgba(255,255,255,0.09);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+  #bg-canvas { position: fixed; inset: 0; z-index: 0; display: block; }
+  .content { position: relative; z-index: 1; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(10px);
+    background: rgba(10,11,18,0.55);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  nav a.navlink { color: var(--muted); text-decoration: none; font-size: 13.5px; margin-left: 22px; }
+  nav a.navlink:hover { color: var(--text); }
+  .lang-switch { display: inline-flex; gap: 4px; margin-left: 22px; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 3px; vertical-align: middle; }
+  .lang-btn { border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; cursor: pointer; font-family: inherit; }
+  .lang-btn.active { background: linear-gradient(100deg, var(--primary), var(--primary2)); color: #0a0b12; }
+  @media (max-width: 700px) { nav .navlinks-desktop { display: none; } }
+
+  .hero {
+    min-height: 88vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    padding: 100px 24px 60px;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px;
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 12.5px; color: var(--muted);
+    margin-bottom: 28px;
+  }
+  .eyebrow .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  h1.hero-title { font-size: clamp(38px, 7vw, 76px); line-height: 1.04; margin: 0 0 18px; font-weight: 800; letter-spacing: -0.02em; }
+  h1.hero-title .grad {
+    background: linear-gradient(100deg, var(--primary), var(--primary2) 55%, var(--accent));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero-sub { max-width: 640px; color: var(--muted); font-size: 17px; line-height: 1.6; margin: 0 0 36px; }
+  .cta-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 13px 24px; border-radius: 12px;
+    font-weight: 600; font-size: 14.5px; text-decoration: none;
+    border: 1px solid transparent;
+    transition: transform .15s ease, opacity .15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: linear-gradient(100deg, var(--primary), var(--primary2)); color: #0a0b12; }
+  .btn-ghost { background: var(--card); border-color: var(--border); color: var(--text); }
+
+  .countdown-chip {
+    margin-top: 44px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; color: var(--accent);
+    background: var(--card); border: 1px solid var(--border);
+    padding: 10px 18px; border-radius: 999px;
+  }
+
+  section { padding: 90px 0; }
+  .section-head { text-align: center; max-width: 640px; margin: 0 auto 52px; }
+  .section-tag { color: var(--accent); font-size: 12.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 12px; }
+  .section-title { font-size: clamp(26px, 4vw, 38px); font-weight: 800; margin: 0 0 14px; letter-spacing: -0.01em; }
+  .section-sub { color: var(--muted); font-size: 15.5px; line-height: 1.65; }
+
+  .grid { display: grid; gap: 18px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 820px) { .grid-3 { grid-template-columns: 1fr; } }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 26px; }
+  .card .icon { font-size: 26px; margin-bottom: 14px; display: block; }
+  .card h3 { margin: 0 0 8px; font-size: 16.5px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+  .tool-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 26px;
+    text-decoration: none; color: var(--text); display: block; transition: transform .15s;
+  }
+  .tool-card:hover { transform: translateY(-3px); }
+  .tool-card .icon { font-size: 30px; margin-bottom: 12px; display: block; }
+  .tool-card .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--accent); margin-top: 8px; display: block; }
+
+  .steps { counter-reset: step; display: flex; flex-direction: column; gap: 0; max-width: 720px; margin: 0 auto; }
+  .step { counter-increment: step; display: flex; gap: 20px; padding: 24px 0; border-top: 1px solid var(--border); }
+  .step:last-child { border-bottom: 1px solid var(--border); }
+  .step::before {
+    content: counter(step); flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--primary), var(--primary2)); color: #0a0b12; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+  }
+  .step h4 { margin: 3px 0 6px; font-size: 15.5px; }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .step code {
+    display: block; margin-top: 10px; background: #05060c; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+    color: var(--accent); overflow-x: auto; white-space: pre;
+  }
+
+  .usecases { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .pill { background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 10px 18px; font-size: 13.5px; color: var(--text); }
+
+  .cta-band {
+    text-align: center;
+    background: linear-gradient(180deg, transparent, rgba(99,102,241,0.08));
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  footer { padding: 50px 0 70px; text-align: center; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--muted); }
+  footer .foot-links { display: flex; gap: 18px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap; }
+  footer .foot-links a { text-decoration: none; }
+  footer .foot-links a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="content">
+  <nav>
+    <div class="wrap">
+      <div class="brand"><span class="dot"></span> Ephemeral Suite</div>
+      <div>
+        <span class="navlinks-desktop">
+          <a class="navlink" href="#why" id="nav-why">Por qué</a>
+          <a class="navlink" href="#tools" id="nav-tools">Herramientas</a>
+          <a class="navlink" href="#how" id="nav-how">Cómo funciona</a>
+          <a class="navlink" href="https://github.com/MauricioPerera/wrangler-ephemeral-suite">GitHub</a>
+        </span>
+        <span class="lang-switch" id="lang-switch">
+          <button class="lang-btn" data-lang="es">ES</button>
+          <button class="lang-btn" data-lang="en">EN</button>
+          <button class="lang-btn" data-lang="pt">PT</button>
+        </span>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="eyebrow"><span class="pulse"></span> <span id="hero-eyebrow">Corre sobre cuentas temporales de Cloudflare</span></div>
+    <h1 class="hero-title" id="hero-title">Tres herramientas,<br><span class="grad">un solo deploy.</span></h1>
+    <p class="hero-sub" id="hero-sub">
+      Chat, pizarra colaborativa y compartir archivos — combinados en un único Worker.
+      Un solo <code>wrangler deploy --temporary</code>, una sola cuenta temporal, una sola ventana de ~1 hora
+      para las tres, en vez de tres deploys separados.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://deploy.workers.cloudflare.com/?url=https://github.com/MauricioPerera/wrangler-ephemeral-suite" target="_blank" rel="noopener">🚀 Deploy to Cloudflare</a>
+      <a class="btn btn-ghost" href="https://github.com/MauricioPerera/wrangler-ephemeral-suite" target="_blank" rel="noopener" id="hero-cta-ghost">Ver código en GitHub</a>
+    </div>
+    <div class="countdown-chip" id="hero-countdown">⏳ se autodestruye en 59:59</div>
+  </header>
+
+  <section id="why">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-tag" id="why-tag">Por qué existe</div>
+        <h2 class="section-title" id="why-title">A veces necesitás más de una herramienta a la vez</h2>
+        <p class="section-sub" id="why-sub">
+          Una reunión de trabajo suele necesitar charlar, dibujar algo en el momento, y pasar un archivo —
+          no tiene sentido levantar tres cuentas temporales distintas con tres ventanas de expiración
+          desincronizadas para eso.
+        </p>
+      </div>
+      <div class="grid grid-3">
+        <div class="card">
+          <span class="icon">🧩</span>
+          <h3 id="why-c1-h">Todo junto</h3>
+          <p id="why-c1-p">Un único Worker, un único link base, tres herramientas bajo distintos prefijos de ruta.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🔀</span>
+          <h3 id="why-c2-h">Independientes igual</h3>
+          <p id="why-c2-p">Cada herramienta también existe como repo standalone si solo necesitás una — la suite no las reemplaza.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🧹</span>
+          <h3 id="why-c3-h">Se limpia todo junto</h3>
+          <p id="why-c3-p">Una sola cuenta temporal, un solo countdown — las tres desaparecen a la vez pasada la hora.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-tag" id="tools-tag">Herramientas incluidas</div>
+        <h2 class="section-title" id="tools-title">Las mismas tres, sin recortes</h2>
+        <p class="section-sub" id="tools-sub">Cada una con todas sus funcionalidades del repo original: admin, invitaciones, historial, exportar/importar.</p>
+      </div>
+      <div class="grid grid-3">
+        <a class="tool-card" href="https://github.com/MauricioPerera/wrangler-ephemeral-chat" target="_blank" rel="noopener">
+          <span class="icon">💬</span>
+          <h3 id="tool-1-h">Chat</h3>
+          <p id="tool-1-p">Tiempo real, admin + invitaciones, historial persistente, UI mobile.</p>
+          <span class="path">/chat</span>
+        </a>
+        <a class="tool-card" href="https://github.com/MauricioPerera/wrangler-ephemeral-whiteboard" target="_blank" rel="noopener">
+          <span class="icon">🎨</span>
+          <h3 id="tool-2-h">Pizarra</h3>
+          <p id="tool-2-p">Dibujo colaborativo en vivo, exportar/importar PNG y JSON.</p>
+          <span class="path">/board</span>
+        </a>
+        <a class="tool-card" href="https://github.com/MauricioPerera/wrangler-ephemeral-airdrop" target="_blank" rel="noopener">
+          <span class="icon">📦</span>
+          <h3 id="tool-3-h">Airdrop</h3>
+          <p id="tool-3-p">Compartir un archivo por QR/link, sin conexión previa del receptor.</p>
+          <span class="path">/drop</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-tag" id="how-tag">Cómo funciona</div>
+        <h2 class="section-title" id="how-title">De cero a las tres herramientas en menos de un minuto</h2>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div>
+            <h4 id="how-1-h">Cloná el repo</h4>
+            <p id="how-1-p">No hace falta tener cuenta de Cloudflare ni estar logueado.</p>
+            <code>git clone https://github.com/MauricioPerera/wrangler-ephemeral-suite.git
+cd wrangler-ephemeral-suite && npm install</code>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4 id="how-2-h">Desplegá con --temporary</h4>
+            <p id="how-2-p">Wrangler crea una cuenta desechable, despliega el Worker con las tres herramientas, y te da la URL pública.</p>
+            <code>npx wrangler deploy --temporary</code>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4 id="how-3-h">Elegí qué usar</h4>
+            <p id="how-3-p">La URL raíz te muestra un hub con links a <code>/chat</code>, <code>/board</code> y <code>/drop</code>. Compartí el que necesites.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4 id="how-4-h">¿Te gustó? Quedátelo</h4>
+            <p id="how-4-p">Wrangler también te da una <em>claim URL</em>. Abrila y logueate antes de que venza la hora
+            y el Worker pasa a tu cuenta real, para siempre. Si no hacés nada, se borra solo.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <div class="wrap section-head" style="margin-bottom:32px;">
+      <div class="section-tag" id="uc-tag">Casos de uso</div>
+      <h2 class="section-title" id="uc-title">¿Para qué sirve esto en la práctica?</h2>
+    </div>
+    <div class="wrap">
+      <div class="usecases">
+        <span class="pill" id="uc-1">Reunión de equipo puntual (charlar + bocetar + compartir)</span>
+        <span class="pill" id="uc-2">Taller o clase con varias dinámicas</span>
+        <span class="pill" id="uc-3">Soporte en vivo con capturas y archivos</span>
+        <span class="pill" id="uc-4">Kit rápido para un evento improvisado</span>
+        <span class="pill" id="uc-5">Probar los tres patrones de Durable Objects a la vez</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot-links">
+        <a href="https://github.com/MauricioPerera/wrangler-ephemeral-suite" target="_blank" rel="noopener" id="foot-1">Repositorio</a>
+        <a href="https://github.com/MauricioPerera/wrangler-ephemeral-suite/blob/master/AGENTS.md" target="_blank" rel="noopener" id="foot-2">Guía para agentes</a>
+        <a href="https://developers.cloudflare.com/workers/platform/claim-deployments/" target="_blank" rel="noopener" id="foot-3">Docs: cuentas temporales</a>
+        <a href="https://developers.cloudflare.com/durable-objects/" target="_blank" rel="noopener" id="foot-4">Docs: Durable Objects</a>
+      </div>
+      <span id="foot-note">No afiliado con Cloudflare. Hecho con <code>wrangler deploy --temporary</code>.</span>
+    </div>
+  </footer>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+(function () {
+  var canvas = document.getElementById('bg-canvas');
+  var renderer, scene, camera, particles;
+  var mouseX = 0, mouseY = 0;
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.z = 14;
+
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    var COUNT = window.innerWidth < 700 ? 260 : 620;
+    var positions = new Float32Array(COUNT * 3);
+    var speeds = new Float32Array(COUNT);
+    var colorChoices = [
+      new THREE.Color(0x6366f1),
+      new THREE.Color(0xf43f5e),
+      new THREE.Color(0x10b981),
+    ];
+    var colors = new Float32Array(COUNT * 3);
+
+    for (var i = 0; i < COUNT; i++) {
+      positions[i * 3] = (Math.random() - 0.5) * 34;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 20;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 20;
+      speeds[i] = 0.15 + Math.random() * 0.35;
+      var c = colorChoices[i % colorChoices.length];
+      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+    }
+
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    var mat = new THREE.PointsMaterial({
+      size: 0.09, vertexColors: true, transparent: true, opacity: 0.85,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+
+    particles = new THREE.Points(geo, mat);
+    particles.userData.speeds = speeds;
+    scene.add(particles);
+
+    window.addEventListener('resize', onResize);
+    window.addEventListener('mousemove', onMouseMove);
+    animate();
+  }
+
+  function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  function onMouseMove(e) {
+    mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+    mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+  }
+
+  var clock = new THREE.Clock();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    var t = clock.getElapsedTime();
+    var pos = particles.geometry.attributes.position;
+    var speeds = particles.userData.speeds;
+
+    for (var i = 0; i < pos.count; i++) {
+      var y = pos.getY(i);
+      y += speeds[i] * 0.01;
+      if (y > 10) y = -10;
+      pos.setY(i, y);
+    }
+    pos.needsUpdate = true;
+
+    particles.rotation.y = t * 0.02;
+    camera.position.x += (mouseX * 1.5 - camera.position.x) * 0.02;
+    camera.position.y += (-mouseY * 1.0 - camera.position.y) * 0.02;
+    camera.lookAt(scene.position);
+
+    renderer.render(scene, camera);
+  }
+
+  if (!reduceMotion && window.WebGLRenderingContext) {
+    try { init(); } catch (e) { canvas.style.display = 'none'; }
+  } else {
+    canvas.style.display = 'none';
+  }
+})();
+
+window.__countdownPrefix = '⏳ se autodestruye en ';
+(function () {
+  var el = document.getElementById('hero-countdown');
+  var total = 60 * 60;
+  var remaining = total;
+  setInterval(function () {
+    remaining = remaining > 0 ? remaining - 1 : total;
+    var m = Math.floor(remaining / 60);
+    var s = remaining % 60;
+    el.textContent = window.__countdownPrefix + m + ':' + String(s).padStart(2, '0');
+  }, 1000);
+})();
+</script>
+
+<script>
+var I18N = {
+  es: {
+    'nav-why': 'Por qué', 'nav-tools': 'Herramientas', 'nav-how': 'Cómo funciona',
+    'hero-eyebrow': 'Corre sobre cuentas temporales de Cloudflare',
+    'hero-title': 'Tres herramientas,<br><span class="grad">un solo deploy.</span>',
+    'hero-sub': 'Chat, pizarra colaborativa y compartir archivos — combinados en un único Worker. Un solo <code>wrangler deploy --temporary</code>, una sola cuenta temporal, una sola ventana de ~1 hora para las tres, en vez de tres deploys separados.',
+    'hero-cta-ghost': 'Ver código en GitHub',
+    'countdown-prefix': '⏳ se autodestruye en ',
+    'why-tag': 'Por qué existe',
+    'why-title': 'A veces necesitás más de una herramienta a la vez',
+    'why-sub': 'Una reunión de trabajo suele necesitar charlar, dibujar algo en el momento, y pasar un archivo — no tiene sentido levantar tres cuentas temporales distintas con tres ventanas de expiración desincronizadas para eso.',
+    'why-c1-h': 'Todo junto', 'why-c1-p': 'Un único Worker, un único link base, tres herramientas bajo distintos prefijos de ruta.',
+    'why-c2-h': 'Independientes igual', 'why-c2-p': 'Cada herramienta también existe como repo standalone si solo necesitás una — la suite no las reemplaza.',
+    'why-c3-h': 'Se limpia todo junto', 'why-c3-p': 'Una sola cuenta temporal, un solo countdown — las tres desaparecen a la vez pasada la hora.',
+    'tools-tag': 'Herramientas incluidas',
+    'tools-title': 'Las mismas tres, sin recortes',
+    'tools-sub': 'Cada una con todas sus funcionalidades del repo original: admin, invitaciones, historial, exportar/importar.',
+    'tool-1-h': 'Chat', 'tool-1-p': 'Tiempo real, admin + invitaciones, historial persistente, UI mobile.',
+    'tool-2-h': 'Pizarra', 'tool-2-p': 'Dibujo colaborativo en vivo, exportar/importar PNG y JSON.',
+    'tool-3-h': 'Airdrop', 'tool-3-p': 'Compartir un archivo por QR/link, sin conexión previa del receptor.',
+    'how-tag': 'Cómo funciona',
+    'how-title': 'De cero a las tres herramientas en menos de un minuto',
+    'how-1-h': 'Cloná el repo', 'how-1-p': 'No hace falta tener cuenta de Cloudflare ni estar logueado.',
+    'how-2-h': 'Desplegá con --temporary', 'how-2-p': 'Wrangler crea una cuenta desechable, despliega el Worker con las tres herramientas, y te da la URL pública.',
+    'how-3-h': 'Elegí qué usar', 'how-3-p': 'La URL raíz te muestra un hub con links a <code>/chat</code>, <code>/board</code> y <code>/drop</code>. Compartí el que necesites.',
+    'how-4-h': '¿Te gustó? Quedátelo', 'how-4-p': 'Wrangler también te da una <em>claim URL</em>. Abrila y logueate antes de que venza la hora y el Worker pasa a tu cuenta real, para siempre. Si no hacés nada, se borra solo.',
+    'uc-tag': 'Casos de uso',
+    'uc-title': '¿Para qué sirve esto en la práctica?',
+    'uc-1': 'Reunión de equipo puntual (charlar + bocetar + compartir)', 'uc-2': 'Taller o clase con varias dinámicas', 'uc-3': 'Soporte en vivo con capturas y archivos',
+    'uc-4': 'Kit rápido para un evento improvisado', 'uc-5': 'Probar los tres patrones de Durable Objects a la vez',
+    'foot-1': 'Repositorio', 'foot-2': 'Guía para agentes', 'foot-3': 'Docs: cuentas temporales', 'foot-4': 'Docs: Durable Objects',
+    'foot-note': 'No afiliado con Cloudflare. Hecho con <code>wrangler deploy --temporary</code>.',
+  },
+  en: {
+    'nav-why': 'Why', 'nav-tools': 'Tools', 'nav-how': 'How it works',
+    'hero-eyebrow': 'Runs on Cloudflare temporary accounts',
+    'hero-title': 'Three tools,<br><span class="grad">one deploy.</span>',
+    'hero-sub': 'Chat, collaborative whiteboard, and file sharing — combined in a single Worker. One <code>wrangler deploy --temporary</code>, one temporary account, one ~1 hour window for all three, instead of three separate deploys.',
+    'hero-cta-ghost': 'View code on GitHub',
+    'countdown-prefix': '⏳ self-destructs in ',
+    'why-tag': 'Why it exists',
+    'why-title': 'Sometimes you need more than one tool at once',
+    'why-sub': 'A work meeting usually needs chatting, sketching something on the spot, and passing a file — no point spinning up three separate temporary accounts with three desynced expiry windows for that.',
+    'why-c1-h': 'Everything together', 'why-c1-p': 'A single Worker, a single base link, three tools under different route prefixes.',
+    'why-c2-h': 'Still independent', 'why-c2-p': 'Each tool also exists as a standalone repo if you only need one — the suite doesn\'t replace them.',
+    'why-c3-h': 'Cleans up all at once', 'why-c3-p': 'One temporary account, one countdown — all three disappear together after the hour.',
+    'tools-tag': 'Included tools',
+    'tools-title': 'The same three, no cuts',
+    'tools-sub': 'Each with all its features from the original repo: admin, invites, history, export/import.',
+    'tool-1-h': 'Chat', 'tool-1-p': 'Real-time, admin + invites, persistent history, mobile UI.',
+    'tool-2-h': 'Whiteboard', 'tool-2-p': 'Live collaborative drawing, export/import PNG and JSON.',
+    'tool-3-h': 'Airdrop', 'tool-3-p': 'Share a file via QR/link, no prior connection needed from the receiver.',
+    'how-tag': 'How it works',
+    'how-title': 'From zero to all three tools in under a minute',
+    'how-1-h': 'Clone the repo', 'how-1-p': 'No Cloudflare account or login needed.',
+    'how-2-h': 'Deploy with --temporary', 'how-2-p': 'Wrangler creates a disposable account, deploys the Worker with all three tools, and gives you the public URL.',
+    'how-3-h': 'Pick what to use', 'how-3-p': 'The root URL shows a hub with links to <code>/chat</code>, <code>/board</code>, and <code>/drop</code>. Share whichever you need.',
+    'how-4-h': 'Like it? Keep it', 'how-4-p': 'Wrangler also gives you a <em>claim URL</em>. Open it and log in before the hour is up and the Worker moves to your real account, permanently. Do nothing, and it deletes itself.',
+    'uc-tag': 'Use cases',
+    'uc-title': 'What is this actually good for?',
+    'uc-1': 'One-off team meeting (chat + sketch + share)', 'uc-2': 'Workshop or class with several activities', 'uc-3': 'Live support with screenshots and files',
+    'uc-4': 'Quick kit for an improvised event', 'uc-5': 'Try all three Durable Objects patterns at once',
+    'foot-1': 'Repository', 'foot-2': 'Agent guide', 'foot-3': 'Docs: temporary accounts', 'foot-4': 'Docs: Durable Objects',
+    'foot-note': 'Not affiliated with Cloudflare. Built with <code>wrangler deploy --temporary</code>.',
+  },
+  pt: {
+    'nav-why': 'Por quê', 'nav-tools': 'Ferramentas', 'nav-how': 'Como funciona',
+    'hero-eyebrow': 'Roda sobre contas temporárias da Cloudflare',
+    'hero-title': 'Três ferramentas,<br><span class="grad">um único deploy.</span>',
+    'hero-sub': 'Chat, quadro colaborativo e compartilhamento de arquivos — combinados num único Worker. Um único <code>wrangler deploy --temporary</code>, uma única conta temporária, uma única janela de ~1 hora para as três, em vez de três deploys separados.',
+    'hero-cta-ghost': 'Ver código no GitHub',
+    'countdown-prefix': '⏳ se autodestrói em ',
+    'why-tag': 'Por que existe',
+    'why-title': 'Às vezes você precisa de mais de uma ferramenta ao mesmo tempo',
+    'why-sub': 'Uma reunião de trabalho costuma precisar conversar, esboçar algo na hora, e passar um arquivo — não faz sentido subir três contas temporárias distintas com três janelas de expiração dessincronizadas para isso.',
+    'why-c1-h': 'Tudo junto', 'why-c1-p': 'Um único Worker, um único link base, três ferramentas sob prefixos de rota diferentes.',
+    'why-c2-h': 'Independentes mesmo assim', 'why-c2-p': 'Cada ferramenta também existe como repo standalone se você só precisar de uma — a suite não as substitui.',
+    'why-c3-h': 'Se limpa tudo junto', 'why-c3-p': 'Uma única conta temporária, uma única contagem regressiva — as três desaparecem juntas passada a hora.',
+    'tools-tag': 'Ferramentas incluídas',
+    'tools-title': 'As mesmas três, sem cortes',
+    'tools-sub': 'Cada uma com todas as suas funcionalidades do repo original: admin, convites, histórico, exportar/importar.',
+    'tool-1-h': 'Chat', 'tool-1-p': 'Tempo real, admin + convites, histórico persistente, UI mobile.',
+    'tool-2-h': 'Quadro', 'tool-2-p': 'Desenho colaborativo ao vivo, exportar/importar PNG e JSON.',
+    'tool-3-h': 'Airdrop', 'tool-3-p': 'Compartilhar um arquivo via QR/link, sem conexão prévia de quem recebe.',
+    'how-tag': 'Como funciona',
+    'how-title': 'Do zero às três ferramentas em menos de um minuto',
+    'how-1-h': 'Clone o repositório', 'how-1-p': 'Não precisa de conta da Cloudflare nem estar logado.',
+    'how-2-h': 'Implante com --temporary', 'how-2-p': 'O Wrangler cria uma conta descartável, implanta o Worker com as três ferramentas, e te dá a URL pública.',
+    'how-3-h': 'Escolha o que usar', 'how-3-p': 'A URL raiz mostra um hub com links para <code>/chat</code>, <code>/board</code> e <code>/drop</code>. Compartilhe o que precisar.',
+    'how-4-h': 'Gostou? Fique com ele', 'how-4-p': 'O Wrangler também te dá uma <em>claim URL</em>. Abra e faça login antes da hora acabar e o Worker passa para sua conta real, para sempre. Se não fizer nada, ele se apaga sozinho.',
+    'uc-tag': 'Casos de uso',
+    'uc-title': 'Para que isso serve na prática?',
+    'uc-1': 'Reunião pontual de equipe (conversar + esboçar + compartilhar)', 'uc-2': 'Workshop ou aula com várias dinâmicas', 'uc-3': 'Suporte ao vivo com prints e arquivos',
+    'uc-4': 'Kit rápido para um evento improvisado', 'uc-5': 'Testar os três padrões de Durable Objects de uma vez',
+    'foot-1': 'Repositório', 'foot-2': 'Guia para agentes', 'foot-3': 'Docs: contas temporárias', 'foot-4': 'Docs: Durable Objects',
+    'foot-note': 'Não afiliado à Cloudflare. Feito com <code>wrangler deploy --temporary</code>.',
+  },
+};
+
+(function () {
+  function applyLang(lang) {
+    var dict = I18N[lang] || I18N.es;
+    Object.keys(dict).forEach(function (id) {
+      if (id === 'countdown-prefix') {
+        window.__countdownPrefix = dict[id];
+        return;
+      }
+      var el = document.getElementById(id);
+      if (el) el.innerHTML = dict[id];
+    });
+    document.documentElement.lang = lang;
+    document.querySelectorAll('.lang-btn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.lang === lang);
+    });
+    localStorage.setItem('lang', lang);
+  }
+
+  function detectLang() {
+    var saved = localStorage.getItem('lang');
+    if (saved && I18N[saved]) return saved;
+    var nav = (navigator.language || 'es').toLowerCase();
+    if (nav.indexOf('en') === 0) return 'en';
+    if (nav.indexOf('pt') === 0) return 'pt';
+    return 'es';
+  }
+
+  document.querySelectorAll('.lang-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { applyLang(btn.dataset.lang); });
+  });
+
+  applyLang(detectLang());
+})();
+</script>
+
+</body>
+</html>
